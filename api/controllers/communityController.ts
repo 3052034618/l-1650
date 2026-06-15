@@ -1,0 +1,182 @@
+import { Response } from 'express';
+import { AuthRequest } from '../middleware/auth.js';
+import { ApiResponse, Poem, Comment } from '../../shared/types.js';
+import { getCommunityPoems, getHotPoems, getPoemById, incrementViews } from '../repositories/poemRepository.js';
+import { toggleLike, toggleFavorite, addComment, getPoemComments, hasUserLiked, hasUserFavorited } from '../repositories/interactionRepository.js';
+
+export function getCommunityPoemsHandler(req: AuthRequest, res: Response<ApiResponse<Poem[]>>) {
+  try {
+    const { genre, sortBy, page, limit } = req.query;
+    const poems = getCommunityPoems({
+      genre: genre as string,
+      sortBy: (sortBy as 'hot' | 'latest') || 'hot',
+      page: page ? parseInt(page as string) : undefined,
+      limit: limit ? parseInt(limit as string) : undefined,
+    });
+
+    res.json({
+      success: true,
+      data: poems,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      errors: ['获取社区作品失败'],
+    });
+  }
+}
+
+export function getCommunityPoemDetail(req: AuthRequest, res: Response<ApiResponse<Poem & { liked: boolean; favorited: boolean }>>) {
+  try {
+    const { id } = req.params;
+    const poem = getPoemById(parseInt(id), true);
+
+    if (!poem) {
+      return res.status(404).json({
+        success: false,
+        errors: ['作品不存在'],
+      });
+    }
+
+    if (!poem.isShared || !poem.isApproved) {
+      return res.status(403).json({
+        success: false,
+        errors: ['该作品尚未公开'],
+      });
+    }
+
+    incrementViews(parseInt(id));
+
+    const liked = req.user ? hasUserLiked(req.user.id, parseInt(id)) : false;
+    const favorited = req.user ? hasUserFavorited(req.user.id, parseInt(id)) : false;
+
+    res.json({
+      success: true,
+      data: {
+        ...poem,
+        liked,
+        favorited,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      errors: ['获取作品详情失败'],
+    });
+  }
+}
+
+export function likePoem(req: AuthRequest, res: Response<ApiResponse<{ liked: boolean; likesCount: number }>>) {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        errors: ['请先登录'],
+      });
+    }
+
+    const { id } = req.params;
+    const result = toggleLike(req.user.id, parseInt(id));
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      errors: ['操作失败'],
+    });
+  }
+}
+
+export function favoritePoem(req: AuthRequest, res: Response<ApiResponse<{ favorited: boolean; favoritesCount: number }>>) {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        errors: ['请先登录'],
+      });
+    }
+
+    const { id } = req.params;
+    const result = toggleFavorite(req.user.id, parseInt(id));
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      errors: ['操作失败'],
+    });
+  }
+}
+
+export function getComments(req: AuthRequest, res: Response<ApiResponse<Comment[]>>) {
+  try {
+    const { id } = req.params;
+    const comments = getPoemComments(parseInt(id));
+
+    res.json({
+      success: true,
+      data: comments,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      errors: ['获取评论失败'],
+    });
+  }
+}
+
+export function addCommentHandler(req: AuthRequest, res: Response<ApiResponse<Comment>>) {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        errors: ['请先登录'],
+      });
+    }
+
+    const { id } = req.params;
+    const { content } = req.body;
+
+    if (!content || content.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        errors: ['评论内容不能为空'],
+      });
+    }
+
+    const comment = addComment(req.user.id, parseInt(id), content.trim());
+
+    res.status(201).json({
+      success: true,
+      data: comment,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      errors: ['评论失败'],
+    });
+  }
+}
+
+export function getHotPoemsHandler(req: AuthRequest, res: Response<ApiResponse<Poem[]>>) {
+  try {
+    const { limit } = req.query;
+    const poems = getHotPoems(limit ? parseInt(limit as string) : 10);
+
+    res.json({
+      success: true,
+      data: poems,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      errors: ['获取热门作品失败'],
+    });
+  }
+}
