@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Feather, TrendingUp, BookOpen, Award, Clock, Sparkles } from 'lucide-react';
+import { Feather, TrendingUp, BookOpen, Award, Clock, Sparkles, Bell, BellOff } from 'lucide-react';
 import { api } from '../utils/api';
-import { Poem } from '../../shared/types.js';
+import { Poem, Reminder } from '../../shared/types.js';
 import PoemCard from '../components/PoemCard';
 import { useAuthStore } from '../store/useAuthStore';
 import Empty from '../components/Empty';
+import { cn } from '../lib/utils';
 
 const dailyPoems = [
   {
@@ -33,20 +34,31 @@ export default function Home() {
   const [myPoems, setMyPoems] = useState<Poem[]>([]);
   const [loading, setLoading] = useState(true);
   const [dailyPoem] = useState(dailyPoems[Math.floor(Math.random() * dailyPoems.length)]);
+  const [reminder, setReminder] = useState<Reminder | null>(null);
   const { user } = useAuthStore();
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [hotRes, myRes] = await Promise.all([
+        const promises: Promise<any>[] = [
           api.community.getHot(6),
           api.poems.getMy(),
-        ]);
+        ];
+        
+        if (user) {
+          promises.push(api.auth.getReminder());
+        }
+
+        const [hotRes, myRes, reminderRes] = await Promise.all(promises);
+        
         if (hotRes.success && hotRes.data) {
           setHotPoems(hotRes.data);
         }
         if (myRes.success && myRes.data) {
           setMyPoems(myRes.data.slice(0, 3));
+        }
+        if (reminderRes && reminderRes.success && reminderRes.data) {
+          setReminder(reminderRes.data);
         }
       } catch (error) {
         console.error('Failed to fetch data:', error);
@@ -55,7 +67,7 @@ export default function Home() {
       }
     };
     fetchData();
-  }, []);
+  }, [user]);
 
   const stats = [
     { label: '我的作品', value: myPoems.length, icon: BookOpen, color: 'from-[#e94560] to-[#ff6b6b]' },
@@ -161,19 +173,68 @@ export default function Home() {
           <div className="space-y-8">
             <div className="bg-gradient-to-br from-[#f5f0e1]/10 to-[#f5f0e1]/5 backdrop-blur-sm rounded-2xl p-6 border border-[#f5f0e1]/10">
               <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#4a7c59] to-[#2d5a3d] flex items-center justify-center">
-                  <Clock className="w-5 h-5 text-white" />
+                <div className={cn(
+                  'w-10 h-10 rounded-full flex items-center justify-center',
+                  reminder?.isEnabled 
+                    ? 'bg-gradient-to-br from-[#f5d742] to-[#e5c400]' 
+                    : 'bg-gradient-to-br from-gray-600 to-gray-700'
+                )}>
+                  {reminder?.isEnabled ? (
+                    <Bell className="w-5 h-5 text-white" />
+                  ) : (
+                    <BellOff className="w-5 h-5 text-white" />
+                  )}
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-white">创作提醒</h2>
                   <p className="text-sm text-gray-400">每日坚持，诗意人生</p>
                 </div>
               </div>
-              <div className="text-center py-4">
-                <div className="text-5xl font-bold text-[#e94560] font-mono mb-2">19:00</div>
-                <p className="text-gray-400 text-sm">每晚七点，相约诗韵</p>
-                <p className="text-[#4a7c59] text-sm mt-2">✓ 提醒已开启</p>
-              </div>
+              {user ? (
+                <div className="text-center py-4">
+                  <div className={cn(
+                    'text-5xl font-bold font-mono mb-2',
+                    reminder?.isEnabled ? 'text-[#f5d742]' : 'text-gray-500'
+                  )}>
+                    {reminder?.reminderTime?.substring(0, 5) || '--:--'}
+                  </div>
+                  <p className="text-gray-400 text-sm">
+                    {reminder?.isEnabled 
+                      ? `每天 ${reminder.reminderTime?.substring(0, 5)} 提醒创作` 
+                      : '提醒已关闭'}
+                  </p>
+                  <p className={cn(
+                    'text-sm mt-2 flex items-center justify-center gap-1',
+                    reminder?.isEnabled ? 'text-[#4a7c59]' : 'text-gray-500'
+                  )}>
+                    {reminder?.isEnabled ? (
+                      <>
+                        <span className="w-2 h-2 rounded-full bg-[#4a7c59] animate-pulse" />
+                        提醒已开启
+                      </>
+                    ) : (
+                      <>
+                        <BellOff className="w-3 h-3" />
+                        提醒已关闭
+                      </>
+                    )}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-3">
+                    点击右下角 🔔 图标可修改设置
+                  </p>
+                </div>
+              ) : (
+                <div className="text-center py-4">
+                  <div className="text-5xl font-bold text-gray-500 font-mono mb-2">--:--</div>
+                  <p className="text-gray-400 text-sm">登录后可设置创作提醒</p>
+                  <Link 
+                    to="/login" 
+                    className="inline-block mt-3 px-4 py-2 bg-[#e94560] rounded-lg text-white text-sm hover:bg-[#ff6b6b] transition-colors"
+                  >
+                    立即登录
+                  </Link>
+                </div>
+              )}
             </div>
 
             <div>

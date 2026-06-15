@@ -24,6 +24,17 @@ export default function Community() {
     setTimeout(() => setActionError(null), 3000);
   };
 
+  const handleActionError = (errorMsg: string | undefined, defaultMsg: string, poemId?: number) => {
+    const msg = errorMsg || defaultMsg;
+    showActionError(msg);
+    
+    if ((msg.includes('不存在') || msg.includes('已被删除')) && poemId) {
+      setTimeout(() => {
+        setPoems(prev => prev.filter(p => p.id !== poemId));
+      }, 1500);
+    }
+  };
+
   useEffect(() => {
     const fetchCategories = async () => {
       const res = await api.categories.getAll();
@@ -74,7 +85,7 @@ export default function Community() {
           : p
       ));
     } else {
-      showActionError(res.errors?.[0] || '点赞失败，请稍后再试');
+      handleActionError(res.errors?.[0], '点赞失败，请稍后再试', id);
     }
   };
 
@@ -101,7 +112,7 @@ export default function Community() {
           : p
       ));
     } else {
-      showActionError(res.errors?.[0] || '收藏失败，请稍后再试');
+      handleActionError(res.errors?.[0], '收藏失败，请稍后再试', id);
     }
   };
 

@@ -69,6 +69,18 @@ export default function WorkDetail() {
     setTimeout(() => setActionError(null), 3000);
   };
 
+  const handleActionError = (errorMsg: string | undefined, defaultMsg: string) => {
+    const msg = errorMsg || defaultMsg;
+    showActionError(msg);
+    
+    if (msg.includes('不存在') || msg.includes('已被删除')) {
+      setTimeout(() => {
+        setPoem(null);
+        setError(msg);
+      }, 1500);
+    }
+  };
+
   const handleLike = async () => {
     if (!poem) return;
     if (!user) {
@@ -87,7 +99,7 @@ export default function WorkDetail() {
         likesCount: res.data!.likesCount,
       } : null);
     } else {
-      showActionError(res.errors?.[0] || '点赞失败，请稍后重试');
+      handleActionError(res.errors?.[0], '点赞失败，请稍后重试');
     }
   };
 
@@ -109,7 +121,7 @@ export default function WorkDetail() {
         favoritesCount: res.data!.favoritesCount,
       } : null);
     } else {
-      showActionError(res.errors?.[0] || '收藏失败，请稍后重试');
+      handleActionError(res.errors?.[0], '收藏失败，请稍后重试');
     }
   };
 
@@ -129,7 +141,7 @@ export default function WorkDetail() {
       setNewComment('');
       setPoem(prev => prev ? { ...prev, commentsCount: prev.commentsCount + 1 } : null);
     } else {
-      showActionError(res.errors?.[0] || '评论失败，请稍后重试');
+      handleActionError(res.errors?.[0], '评论失败，请稍后重试');
     }
   };
 

@@ -81,7 +81,49 @@ export default function Create() {
     setErrors(prev => ({ ...prev, audio: undefined }));
   };
 
-  const validateAudio = (): boolean => {
+  const checkRealMP3 = async (file: File): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const arrayBuffer = e.target?.result as ArrayBuffer;
+        if (!arrayBuffer || arrayBuffer.byteLength < 3) {
+          resolve(false);
+          return;
+        }
+
+        const dataView = new DataView(arrayBuffer);
+        
+        const id3Header = (dataView.getUint8(0) === 0x49 && 
+                          dataView.getUint8(1) === 0x44 && 
+                          dataView.getUint8(2) === 0x33);
+        
+        const frameSync = (dataView.getUint8(0) === 0xFF && 
+                          (dataView.getUint8(1) & 0xE0) === 0xE0);
+
+        if (!id3Header && !frameSync) {
+          let found = false;
+          const maxCheck = Math.min(1024, arrayBuffer.byteLength - 2);
+          for (let i = 0; i < maxCheck; i++) {
+            if (dataView.getUint8(i) === 0xFF && (dataView.getUint8(i + 1) & 0xE0) === 0xE0) {
+              const version = (dataView.getUint8(i + 1) & 0x18) >> 3;
+              const layer = (dataView.getUint8(i + 1) & 0x06) >> 1;
+              if (version !== 1 && layer === 1) {
+                found = true;
+                break;
+              }
+            }
+          }
+          resolve(found);
+        } else {
+          resolve(true);
+        }
+      };
+      reader.onerror = () => resolve(false);
+      reader.readAsArrayBuffer(file.slice(0, 1024));
+    });
+  };
+
+  const validateAudio = async (): Promise<boolean> => {
     if (!audioFile) return true;
 
     const fileSizeMB = audioFile.size / (1024 * 1024);
@@ -90,24 +132,41 @@ export default function Create() {
       return false;
     }
 
-    const isValidMP3 = 
+    if (fileSizeMB < 0.01) {
+      setErrors(prev => ({ ...prev, audio: '音频文件过小，可能无效' }));
+      return false;
+    }
+
+    const isValidExtension = audioFile.name.toLowerCase().endsWith('.mp3');
+    if (!isValidExtension) {
+      setErrors(prev => ({ ...prev, audio: `文件扩展名必须是 .mp3，当前文件：${audioFile.name}` }));
+      return false;
+    }
+
+    const isValidMimeType = 
       audioFile.type === 'audio/mp3' || 
       audioFile.type === 'audio/mpeg' || 
       audioFile.type === 'audio/x-mpeg-3' ||
-      audioFile.name.toLowerCase().endsWith('.mp3');
+      audioFile.type === 'audio/mpeg3';
     
-    if (!isValidMP3) {
-      setErrors(prev => ({ ...prev, audio: `仅限MP3格式音频，当前格式：${audioFile.type || '未知'}` }));
+    if (!isValidMimeType) {
+      setErrors(prev => ({ ...prev, audio: `文件MIME类型不正确，当前类型：${audioFile.type || '未知'}，需要 audio/mp3 或 audio/mpeg` }));
+      return false;
+    }
+
+    const isRealMP3 = await checkRealMP3(audioFile);
+    if (!isRealMP3) {
+      setErrors(prev => ({ ...prev, audio: '该文件不是真正的MP3格式，请确保音频编码正确，推荐使用格式工厂等工具转换' }));
       return false;
     }
 
     if (audioDuration === 0) {
-      setErrors(prev => ({ ...prev, audio: '音频时长无效，请重新录制' }));
+      setErrors(prev => ({ ...prev, audio: '音频时长无效，请重新录制或上传有效的MP3文件' }));
       return false;
     }
 
     if (waveform.length === 0) {
-      setErrors(prev => ({ ...prev, audio: '波形数据无效，请重新录制' }));
+      setErrors(prev => ({ ...prev, audio: '波形数据无效，请重新录制或上传' }));
       return false;
     }
 
@@ -117,19 +176,31 @@ export default function Create() {
   const uploadAudio = async (poemId: number): Promise<boolean> => {
     if (!audioFile) return true;
 
-    if (!validateAudio()) return false;
+    const isValid = await validateAudio();
+    if (!isValid) return false;
 
     const formData = new FormData();
     formData.append('audio', audioFile);
     formData.append('duration', String(audioDuration));
     formData.append('waveform', JSON.stringify(waveform));
 
-    const res = await api.poems.uploadAudio(poemId, formData);
-    if (res.success) {
-      setAudioUploaded(true);
-      return true;
-    } else {
-      setErrors(prev => ({ ...prev, audio: res.errors?.[0] || '音频上传失败，请稍后重试' }));
+    try {
+      const res = await api.poems.uploadAudio(poemId, formData);
+      if (res.success) {
+        setAudioUploaded(true);
+        return true;
+      } else {
+        setErrors(prev => ({ 
+          ...prev, 
+          audio: res.errors?.[0] || '音频上传失败，请稍后重试。如果问题持续，请尝试压缩音频文件或更换其他MP3文件' 
+        }));
+        return false;
+      }
+    } catch (err: any) {
+      setErrors(prev => ({ 
+        ...prev, 
+        audio: err.message || '网络错误，音频上传失败，请检查网络连接后重试' 
+      }));
       return false;
     }
   };
@@ -138,7 +209,11 @@ export default function Create() {
     setErrors({});
 
     if (!validate()) return;
-    if (audioFile && !validateAudio()) return;
+    
+    if (audioFile) {
+      const audioValid = await validateAudio();
+      if (!audioValid) return;
+    }
 
     setSaving(true);
     try {

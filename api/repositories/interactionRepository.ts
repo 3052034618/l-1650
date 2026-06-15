@@ -18,46 +18,81 @@ export interface DbComment {
   created_at: string;
 }
 
-export function toggleLike(userId: number, poemId: number): { liked: boolean; likesCount: number } {
+export interface InteractionResult<T> {
+  success: boolean;
+  error?: string;
+  data?: T;
+}
+
+function checkPoemExistsAndPublic(poemId: number): InteractionResult<null> {
+  const poem = db.prepare('SELECT is_shared, is_approved FROM poems WHERE id = ?').get(poemId) as { is_shared: number; is_approved: number } | undefined;
+  
+  if (!poem) {
+    return { success: false, error: '作品不存在或已被删除' };
+  }
+  
+  if (!poem.is_shared || !poem.is_approved) {
+    return { success: false, error: '该作品尚未公开，无法进行此操作' };
+  }
+  
+  return { success: true };
+}
+
+export function toggleLike(userId: number, poemId: number): InteractionResult<{ liked: boolean; likesCount: number }> {
+  const checkResult = checkPoemExistsAndPublic(poemId);
+  if (!checkResult.success) {
+    return checkResult;
+  }
+
   const existing = db.prepare('SELECT id FROM likes WHERE user_id = ? AND poem_id = ?').get(userId, poemId);
   
   if (existing) {
     db.prepare('DELETE FROM likes WHERE user_id = ? AND poem_id = ?').run(userId, poemId);
     db.prepare('UPDATE poems SET likes_count = likes_count - 1 WHERE id = ?').run(poemId);
     const poem = db.prepare('SELECT likes_count FROM poems WHERE id = ?').get(poemId) as { likes_count: number };
-    return { liked: false, likesCount: poem.likes_count };
+    return { success: true, data: { liked: false, likesCount: poem.likes_count } };
   } else {
     db.prepare('INSERT INTO likes (user_id, poem_id) VALUES (?, ?)').run(userId, poemId);
     db.prepare('UPDATE poems SET likes_count = likes_count + 1 WHERE id = ?').run(poemId);
     const poem = db.prepare('SELECT likes_count FROM poems WHERE id = ?').get(poemId) as { likes_count: number };
-    return { liked: true, likesCount: poem.likes_count };
+    return { success: true, data: { liked: true, likesCount: poem.likes_count } };
   }
 }
 
-export function toggleFavorite(userId: number, poemId: number): { favorited: boolean; favoritesCount: number } {
+export function toggleFavorite(userId: number, poemId: number): InteractionResult<{ favorited: boolean; favoritesCount: number }> {
+  const checkResult = checkPoemExistsAndPublic(poemId);
+  if (!checkResult.success) {
+    return checkResult;
+  }
+
   const existing = db.prepare('SELECT id FROM favorites WHERE user_id = ? AND poem_id = ?').get(userId, poemId);
   
   if (existing) {
     db.prepare('DELETE FROM favorites WHERE user_id = ? AND poem_id = ?').run(userId, poemId);
     db.prepare('UPDATE poems SET favorites_count = favorites_count - 1 WHERE id = ?').run(poemId);
     const poem = db.prepare('SELECT favorites_count FROM poems WHERE id = ?').get(poemId) as { favorites_count: number };
-    return { favorited: false, favoritesCount: poem.favorites_count };
+    return { success: true, data: { favorited: false, favoritesCount: poem.favorites_count } };
   } else {
     db.prepare('INSERT INTO favorites (user_id, poem_id) VALUES (?, ?)').run(userId, poemId);
     db.prepare('UPDATE poems SET favorites_count = favorites_count + 1 WHERE id = ?').run(poemId);
     const poem = db.prepare('SELECT favorites_count FROM poems WHERE id = ?').get(poemId) as { favorites_count: number };
-    return { favorited: true, favoritesCount: poem.favorites_count };
+    return { success: true, data: { favorited: true, favoritesCount: poem.favorites_count } };
   }
 }
 
-export function addComment(userId: number, poemId: number, content: string): Comment {
+export function addComment(userId: number, poemId: number, content: string): InteractionResult<Comment> {
+  const checkResult = checkPoemExistsAndPublic(poemId);
+  if (!checkResult.success) {
+    return checkResult;
+  }
+
   const stmt = db.prepare(`
     INSERT INTO comments (user_id, poem_id, content)
     VALUES (?, ?, ?)
   `);
   const result = stmt.run(userId, poemId, content);
   db.prepare('UPDATE poems SET comments_count = comments_count + 1 WHERE id = ?').run(poemId);
-  return getCommentById(result.lastInsertRowid as number)!;
+  return { success: true, data: getCommentById(result.lastInsertRowid as number)! };
 }
 
 export function getCommentById(id: number): Comment | null {

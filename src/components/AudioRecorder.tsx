@@ -17,6 +17,7 @@ export default function AudioRecorder({ onUpload, maxDuration = 300, maxSizeMB =
   const [waveform, setWaveform] = useState<number[]>([]);
   const [currentTime, setCurrentTime] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [validating, setValidating] = useState(false);
   const [fileInputMode, setFileInputMode] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -30,23 +31,79 @@ export default function AudioRecorder({ onUpload, maxDuration = 300, maxSizeMB =
   const startTimeRef = useRef<number>(0);
   const timerRef = useRef<number | null>(null);
 
-  const validateMP3File = (file: File): string | null => {
+  const validateMP3File = async (file: File): Promise<string | null> => {
     const fileSizeMB = file.size / (1024 * 1024);
     if (fileSizeMB > maxSizeMB) {
       return `文件大小不能超过${maxSizeMB}MB，当前${fileSizeMB.toFixed(2)}MB`;
     }
 
-    const isValidMP3 = 
+    if (fileSizeMB < 0.01) {
+      return '音频文件过小，可能无效';
+    }
+
+    const isValidExtension = file.name.toLowerCase().endsWith('.mp3');
+    if (!isValidExtension) {
+      return `文件扩展名必须是 .mp3，当前文件：${file.name}`;
+    }
+
+    const isValidMimeType = 
       file.type === 'audio/mp3' || 
       file.type === 'audio/mpeg' || 
       file.type === 'audio/x-mpeg-3' ||
-      file.name.toLowerCase().endsWith('.mp3');
+      file.type === 'audio/mpeg3';
     
-    if (!isValidMP3) {
-      return `仅限MP3格式，当前格式：${file.type || '未知'}`;
+    if (!isValidMimeType) {
+      return `文件MIME类型不正确，当前类型：${file.type || '未知'}，需要 audio/mp3 或 audio/mpeg`;
+    }
+
+    const isRealMP3 = await checkMP3Header(file);
+    if (!isRealMP3) {
+      return '该文件不是真正的MP3格式，请确保音频编码正确';
     }
 
     return null;
+  };
+
+  const checkMP3Header = async (file: File): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const arrayBuffer = e.target?.result as ArrayBuffer;
+        if (!arrayBuffer || arrayBuffer.byteLength < 3) {
+          resolve(false);
+          return;
+        }
+
+        const dataView = new DataView(arrayBuffer);
+        
+        const id3Header = (dataView.getUint8(0) === 0x49 && 
+                          dataView.getUint8(1) === 0x44 && 
+                          dataView.getUint8(2) === 0x33);
+        
+        const frameSync = (dataView.getUint8(0) === 0xFF && 
+                          (dataView.getUint8(1) & 0xE0) === 0xE0);
+
+        if (!id3Header && !frameSync) {
+          let found = false;
+          const maxCheck = Math.min(1024, arrayBuffer.byteLength - 2);
+          for (let i = 0; i < maxCheck; i++) {
+            if (dataView.getUint8(i) === 0xFF && (dataView.getUint8(i + 1) & 0xE0) === 0xE0) {
+              const version = (dataView.getUint8(i + 1) & 0x18) >> 3;
+              const layer = (dataView.getUint8(i + 1) & 0x06) >> 1;
+              if (version !== 1 && layer === 1) {
+                found = true;
+                break;
+              }
+            }
+          }
+          resolve(found);
+        } else {
+          resolve(true);
+        }
+      };
+      reader.onerror = () => resolve(false);
+      reader.readAsArrayBuffer(file.slice(0, 1024));
+    });
   };
 
   const formatTime = (seconds: number) => {
@@ -73,9 +130,26 @@ export default function AudioRecorder({ onUpload, maxDuration = 300, maxSizeMB =
     return data.map(d => d / max);
   }, []);
 
+  const getSupportedMp3MimeType = (): string | null => {
+    const types = ['audio/mp3', 'audio/mpeg', 'audio/mpeg3', 'audio/x-mpeg-3'];
+    for (const type of types) {
+      if (MediaRecorder.isTypeSupported(type)) {
+        return type;
+      }
+    }
+    return null;
+  };
+
   const startRecording = async () => {
     try {
       setError(null);
+      
+      const mp3MimeType = getSupportedMp3MimeType();
+      if (!mp3MimeType) {
+        setError('您的浏览器不支持直接录制MP3格式，请使用"上传MP3"按钮选择已有的MP3文件，或使用Chrome/Edge浏览器');
+        return;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
@@ -86,7 +160,7 @@ export default function AudioRecorder({ onUpload, maxDuration = 300, maxSizeMB =
       const source = audioContext.createMediaStreamSource(stream);
       source.connect(analyser);
 
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: mp3MimeType });
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -97,17 +171,16 @@ export default function AudioRecorder({ onUpload, maxDuration = 300, maxSizeMB =
       };
 
       mediaRecorder.onstop = async () => {
-        const webmBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const mp3Blob = new Blob(audioChunksRef.current, { type: mp3MimeType });
         
         const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const arrayBuffer = await webmBlob.arrayBuffer();
+        const arrayBuffer = await mp3Blob.arrayBuffer();
         const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-        const wavBlob = await convertToMP3(webmBlob);
         
         const waveformData = generateWaveformData(audioBuffer);
-        const url = URL.createObjectURL(wavBlob);
+        const url = URL.createObjectURL(mp3Blob);
         
-        setRecordedBlob(wavBlob);
+        setRecordedBlob(mp3Blob);
         setAudioUrl(url);
         setWaveform(waveformData);
         setDuration(Math.floor(audioBuffer.duration));
@@ -151,10 +224,6 @@ export default function AudioRecorder({ onUpload, maxDuration = 300, maxSizeMB =
     }
   };
 
-  const convertToMP3 = async (blob: Blob): Promise<Blob> => {
-    return blob;
-  };
-
   const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
@@ -178,13 +247,14 @@ export default function AudioRecorder({ onUpload, maxDuration = 300, maxSizeMB =
   };
 
   const processAudioFile = async (file: File) => {
-    const validationError = validateMP3File(file);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-
+    setValidating(true);
     try {
+      const validationError = await validateMP3File(file);
+      if (validationError) {
+        setError(validationError);
+        return;
+      }
+
       setError(null);
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
       const arrayBuffer = await file.arrayBuffer();
@@ -198,6 +268,8 @@ export default function AudioRecorder({ onUpload, maxDuration = 300, maxSizeMB =
       setDuration(Math.floor(audioBuffer.duration));
     } catch (err) {
       setError('无法解析音频文件，请确保是有效的MP3文件');
+    } finally {
+      setValidating(false);
     }
   };
 
@@ -219,23 +291,29 @@ export default function AudioRecorder({ onUpload, maxDuration = 300, maxSizeMB =
     setFileInputMode(false);
   };
 
-  const handleUpload = () => {
+  const handleUpload = async () => {
     if (!recordedBlob || duration === 0) return;
 
     const fileSizeMB = recordedBlob.size / (1024 * 1024);
     if (fileSizeMB > maxSizeMB) {
-      setError(`音频文件大小不能超过${maxSizeMB}MB`);
+      setError(`音频文件大小不能超过${maxSizeMB}MB，当前${fileSizeMB.toFixed(2)}MB`);
       return;
     }
 
-    const file = new File([recordedBlob], `recording_${Date.now()}.mp3`, { type: 'audio/mp3' });
-    const validationError = validateMP3File(file);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
+    setValidating(true);
+    try {
+      const file = new File([recordedBlob], `recording_${Date.now()}.mp3`, { type: 'audio/mp3' });
+      const validationError = await validateMP3File(file);
+      if (validationError) {
+        setError(validationError);
+        return;
+      }
 
-    onUpload(file, duration, waveform);
+      setError(null);
+      onUpload(file, duration, waveform);
+    } finally {
+      setValidating(false);
+    }
   };
 
   useEffect(() => {
@@ -332,10 +410,23 @@ export default function AudioRecorder({ onUpload, maxDuration = 300, maxSizeMB =
         {recordedBlob && (
           <button
             onClick={handleUpload}
-            className="px-6 py-3 bg-gradient-to-r from-[#4a7c59] to-[#2d5a3d] rounded-lg text-white font-medium flex items-center gap-2 hover:shadow-lg hover:shadow-[#4a7c59]/30 transition-all"
+            disabled={validating || isRecording}
+            className={cn(
+              'px-6 py-3 bg-gradient-to-r from-[#4a7c59] to-[#2d5a3d] rounded-lg text-white font-medium flex items-center gap-2 hover:shadow-lg hover:shadow-[#4a7c59]/30 transition-all',
+              (validating || isRecording) ? 'opacity-50 cursor-not-allowed' : ''
+            )}
           >
-            <Upload className="w-5 h-5" />
-            确认上传
+            {validating ? (
+              <>
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                校验中...
+              </>
+            ) : (
+              <>
+                <Upload className="w-5 h-5" />
+                确认上传
+              </>
+            )}
           </button>
         )}
       </div>

@@ -71,21 +71,28 @@ export function likePoem(req: AuthRequest, res: Response<ApiResponse<{ liked: bo
     if (!req.user) {
       return res.status(401).json({
         success: false,
-        errors: ['请先登录'],
+        errors: ['请先登录后再点赞'],
       });
     }
 
     const { id } = req.params;
     const result = toggleLike(req.user.id, parseInt(id));
 
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        errors: [result.error || '点赞失败'],
+      });
+    }
+
     res.json({
       success: true,
-      data: result,
+      data: result.data!,
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({
       success: false,
-      errors: ['操作失败'],
+      errors: [error.message || '点赞失败，请稍后重试'],
     });
   }
 }
@@ -95,21 +102,28 @@ export function favoritePoem(req: AuthRequest, res: Response<ApiResponse<{ favor
     if (!req.user) {
       return res.status(401).json({
         success: false,
-        errors: ['请先登录'],
+        errors: ['请先登录后再收藏'],
       });
     }
 
     const { id } = req.params;
     const result = toggleFavorite(req.user.id, parseInt(id));
 
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        errors: [result.error || '收藏失败'],
+      });
+    }
+
     res.json({
       success: true,
-      data: result,
+      data: result.data!,
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({
       success: false,
-      errors: ['操作失败'],
+      errors: [error.message || '收藏失败，请稍后重试'],
     });
   }
 }
@@ -136,7 +150,7 @@ export function addCommentHandler(req: AuthRequest, res: Response<ApiResponse<Co
     if (!req.user) {
       return res.status(401).json({
         success: false,
-        errors: ['请先登录'],
+        errors: ['请先登录后再评论'],
       });
     }
 
@@ -150,16 +164,23 @@ export function addCommentHandler(req: AuthRequest, res: Response<ApiResponse<Co
       });
     }
 
-    const comment = addComment(req.user.id, parseInt(id), content.trim());
+    const result = addComment(req.user.id, parseInt(id), content.trim());
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        errors: [result.error || '评论失败'],
+      });
+    }
 
     res.status(201).json({
       success: true,
-      data: comment,
+      data: result.data!,
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({
       success: false,
-      errors: ['评论失败'],
+      errors: [error.message || '评论失败，请稍后重试'],
     });
   }
 }

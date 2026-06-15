@@ -29,8 +29,14 @@ const storage = multer.diskStorage({
 export const upload = multer({
   storage,
   fileFilter: (req, file, cb) => {
-    if (file.mimetype !== 'audio/mpeg' && file.mimetype !== 'audio/mp3') {
-      return cb(new Error('仅支持MP3格式音频'));
+    if (file.mimetype !== 'audio/mpeg' && 
+        file.mimetype !== 'audio/mp3' && 
+        file.mimetype !== 'audio/x-mpeg-3' &&
+        file.mimetype !== 'audio/mpeg3') {
+      return cb(new Error(`仅支持MP3格式音频，当前文件类型：${file.mimetype}`));
+    }
+    if (!file.originalname.toLowerCase().endsWith('.mp3')) {
+      return cb(new Error(`文件扩展名必须是.mp3，当前文件：${file.originalname}`));
     }
     cb(null, true);
   },
@@ -301,7 +307,51 @@ export function sharePoemHandler(req: AuthRequest, res: Response<ApiResponse<Poe
   }
 }
 
-export function uploadAudioHandler(req: AuthRequest, res: Response<ApiResponse<AudioUploadResponse>>) {
+function checkMP3FileHeader(filePath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const stream = fs.createReadStream(filePath, { start: 0, end: 1024 });
+    let data = Buffer.alloc(0);
+
+    stream.on('data', (chunk) => {
+      data = Buffer.concat([data, chunk as Buffer]);
+    });
+
+    stream.on('end', () => {
+      if (data.length < 3) {
+        resolve(false);
+        return;
+      }
+
+      const id3Header = data[0] === 0x49 && data[1] === 0x44 && data[2] === 0x33;
+      const frameSync = data[0] === 0xFF && (data[1] & 0xE0) === 0xE0;
+
+      if (id3Header || frameSync) {
+        resolve(true);
+        return;
+      }
+
+      let found = false;
+      const maxCheck = Math.min(1024, data.length - 2);
+      for (let i = 0; i < maxCheck; i++) {
+        if (data[i] === 0xFF && (data[i + 1] & 0xE0) === 0xE0) {
+          const version = (data[i + 1] & 0x18) >> 3;
+          const layer = (data[i + 1] & 0x06) >> 1;
+          if (version !== 1 && layer === 1) {
+            found = true;
+            break;
+          }
+        }
+      }
+      resolve(found);
+    });
+
+    stream.on('error', () => {
+      resolve(false);
+    });
+  });
+}
+
+export async function uploadAudioHandler(req: AuthRequest, res: Response<ApiResponse<AudioUploadResponse>>) {
   try {
     if (!req.user) {
       return res.status(401).json({
@@ -316,7 +366,7 @@ export function uploadAudioHandler(req: AuthRequest, res: Response<ApiResponse<A
     if (!poem) {
       return res.status(404).json({
         success: false,
-        errors: ['作品不存在'],
+        errors: ['作品不存在或已被删除'],
       });
     }
 
@@ -334,11 +384,28 @@ export function uploadAudioHandler(req: AuthRequest, res: Response<ApiResponse<A
       });
     }
 
+    const isRealMP3 = await checkMP3FileHeader(req.file.path);
+    if (!isRealMP3) {
+      fs.unlinkSync(req.file.path);
+      return res.status(400).json({
+        success: false,
+        errors: ['该文件不是真正的MP3格式，请确保音频编码正确，推荐使用格式工厂等工具转换后再上传'],
+      });
+    }
+
     const { duration, waveform } = req.body;
     const waveformData = waveform ? JSON.parse(waveform) : generateWaveformData();
 
     const audioUrl = `/uploads/audio/${req.file.filename}`;
     const updated = updatePoemAudio(parseInt(id), audioUrl, parseInt(duration) || 0, waveformData);
+
+    if (!updated) {
+      fs.unlinkSync(req.file.path);
+      return res.status(500).json({
+        success: false,
+        errors: ['保存音频信息失败，请稍后重试'],
+      });
+    }
 
     res.json({
       success: true,
@@ -350,6 +417,9 @@ export function uploadAudioHandler(req: AuthRequest, res: Response<ApiResponse<A
       message: '音频上传成功',
     });
   } catch (error: any) {
+    if (req.file && fs.existsSync(req.file.path)) {
+      try { fs.unlinkSync(req.file.path); } catch (e) { }
+    }
     if (error.message.includes('仅支持MP3')) {
       return res.status(400).json({
         success: false,
@@ -359,12 +429,12 @@ export function uploadAudioHandler(req: AuthRequest, res: Response<ApiResponse<A
     if (error.message.includes('File too large')) {
       return res.status(400).json({
         success: false,
-        errors: ['音频文件大小不能超过10MB'],
+        errors: ['音频文件大小不能超过10MB，请压缩后再上传'],
       });
     }
     res.status(500).json({
       success: false,
-      errors: ['音频上传失败'],
+      errors: [error.message || '音频上传失败，请稍后重试'],
     });
   }
 }
