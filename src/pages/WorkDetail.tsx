@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Heart, MessageCircle, Bookmark, Share2, Play, Pause, Clock, Eye, User, Send, Edit2, Trash2, Mic } from 'lucide-react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { ArrowLeft, Heart, MessageCircle, Bookmark, Share2, Play, Pause, Clock, Eye, User, Send, Edit2, Trash2, Mic, AlertTriangle, CheckCircle, FileText } from 'lucide-react';
 import { api } from '../utils/api';
 import { Poem, Comment } from '../../shared/types.js';
 import { useAuthStore } from '../store/useAuthStore';
@@ -10,6 +10,7 @@ import Empty from '../components/Empty';
 export default function WorkDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuthStore();
   const [poem, setPoem] = useState<(Poem & { liked?: boolean; favorited?: boolean }) | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -18,34 +19,66 @@ export default function WorkDetail() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const isFromWorks = location.pathname.startsWith('/works');
 
   useEffect(() => {
     if (!id) return;
     const fetchData = async () => {
       try {
+        setError(null);
         const poemId = parseInt(id);
-        const [poemRes, commentsRes] = await Promise.all([
-          api.community.getDetail(poemId),
-          api.community.getComments(poemId),
-        ]);
-        if (poemRes.success && poemRes.data) {
+        
+        let poemRes;
+        if (isFromWorks) {
+          poemRes = await api.poems.getById(poemId);
+        } else {
+          poemRes = await api.community.getDetail(poemId);
+        }
+
+        if (!poemRes.success) {
+          setError(poemRes.errors?.[0] || '加载作品失败');
+          return;
+        }
+
+        if (poemRes.data) {
           setPoem(poemRes.data);
         }
-        if (commentsRes.success && commentsRes.data) {
-          setComments(commentsRes.data);
+
+        if (!isFromWorks || (poemRes.data?.isShared && poemRes.data?.isApproved)) {
+          const commentsRes = await api.community.getComments(poemId);
+          if (commentsRes.success && commentsRes.data) {
+            setComments(commentsRes.data);
+          }
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Failed to fetch data:', error);
+        setError(error.message || '网络错误，请稍后重试');
       } finally {
         setLoading(false);
       }
     };
     fetchData();
-  }, [id]);
+  }, [id, isFromWorks]);
+
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const showActionError = (msg: string) => {
+    setActionError(msg);
+    setTimeout(() => setActionError(null), 3000);
+  };
 
   const handleLike = async () => {
     if (!poem) return;
+    if (!user) {
+      showActionError('请先登录后再点赞');
+      return;
+    }
+    if (!poem.isShared || !poem.isApproved) {
+      showActionError('该作品尚未公开，无法点赞');
+      return;
+    }
     const res = await api.community.like(poem.id);
     if (res.success && res.data) {
       setPoem(prev => prev ? {
@@ -53,11 +86,21 @@ export default function WorkDetail() {
         liked: res.data!.liked,
         likesCount: res.data!.likesCount,
       } : null);
+    } else {
+      showActionError(res.errors?.[0] || '点赞失败，请稍后重试');
     }
   };
 
   const handleFavorite = async () => {
     if (!poem) return;
+    if (!user) {
+      showActionError('请先登录后再收藏');
+      return;
+    }
+    if (!poem.isShared || !poem.isApproved) {
+      showActionError('该作品尚未公开，无法收藏');
+      return;
+    }
     const res = await api.community.favorite(poem.id);
     if (res.success && res.data) {
       setPoem(prev => prev ? {
@@ -65,16 +108,28 @@ export default function WorkDetail() {
         favorited: res.data!.favorited,
         favoritesCount: res.data!.favoritesCount,
       } : null);
+    } else {
+      showActionError(res.errors?.[0] || '收藏失败，请稍后重试');
     }
   };
 
   const handleAddComment = async () => {
     if (!poem || !newComment.trim()) return;
+    if (!user) {
+      showActionError('请先登录后再评论');
+      return;
+    }
+    if (!poem.isShared || !poem.isApproved) {
+      showActionError('该作品尚未公开，无法评论');
+      return;
+    }
     const res = await api.community.addComment(poem.id, newComment.trim());
     if (res.success && res.data) {
       setComments(prev => [...prev, res.data!]);
       setNewComment('');
       setPoem(prev => prev ? { ...prev, commentsCount: prev.commentsCount + 1 } : null);
+    } else {
+      showActionError(res.errors?.[0] || '评论失败，请稍后重试');
     }
   };
 
@@ -104,12 +159,58 @@ export default function WorkDetail() {
 
   const isOwner = user?.id === poem?.userId;
 
+  const getStatusBadge = () => {
+    if (!poem.isShared) {
+      return (
+        <span className="px-3 py-1 rounded-full bg-gray-500/20 text-gray-400 text-sm flex items-center gap-1">
+          <FileText className="w-3.5 h-3.5" />
+          草稿
+        </span>
+      );
+    }
+    if (!poem.isApproved) {
+      return (
+        <span className="px-3 py-1 rounded-full bg-[#f5d742]/20 text-[#f5d742] text-sm flex items-center gap-1">
+          <AlertTriangle className="w-3.5 h-3.5" />
+          审核中
+        </span>
+      );
+    }
+    return (
+      <span className="px-3 py-1 rounded-full bg-[#4a7c59]/20 text-[#4a7c59] text-sm flex items-center gap-1">
+        <CheckCircle className="w-3.5 h-3.5" />
+        已发布
+      </span>
+    );
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen p-8">
         <div className="max-w-4xl mx-auto">
           <div className="h-8 bg-[#f5f0e1]/5 rounded w-32 mb-8 animate-pulse" />
           <div className="h-96 bg-[#f5f0e1]/5 rounded-2xl animate-pulse" />
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen p-8">
+        <div className="max-w-4xl mx-auto">
+          <button
+            onClick={() => navigate(-1)}
+            className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors mb-8"
+          >
+            <ArrowLeft className="w-5 h-5" />
+            返回
+          </button>
+          <Empty
+            title="加载失败"
+            description={error}
+            icon={AlertTriangle}
+          />
         </div>
       </div>
     );
@@ -128,6 +229,13 @@ export default function WorkDetail() {
   return (
     <div className="min-h-screen p-8">
       <div className="max-w-4xl mx-auto space-y-8">
+        {actionError && (
+          <div className="fixed top-4 right-4 z-50 bg-red-500/90 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 animate-pulse">
+            <AlertTriangle className="w-5 h-5" />
+            {actionError}
+          </div>
+        )}
+
         <button
           onClick={() => navigate(-1)}
           className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
@@ -140,18 +248,19 @@ export default function WorkDetail() {
           <div className="flex items-start justify-between mb-8">
             <div>
               <h1 className="text-4xl font-bold text-white font-serif mb-4">{poem.title}</h1>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3 flex-wrap">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#4a7c59] to-[#2d5a3d] flex items-center justify-center">
                     <User className="w-4 h-4 text-white" />
                   </div>
                   <span className="text-gray-300">
-                    {poem.author?.username || '匿名'}
+                    {poem.author?.username || user?.username || '匿名'}
                   </span>
                 </div>
                 <span className="px-3 py-1 rounded-full bg-[#4a7c59]/20 text-[#4a7c59] text-sm">
                   {poem.genre}
                 </span>
+                {getStatusBadge()}
                 <span className="text-gray-500 text-sm flex items-center gap-1">
                   <Clock className="w-4 h-4" />
                   {new Date(poem.createdAt).toLocaleDateString()}

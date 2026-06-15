@@ -81,19 +81,43 @@ export default function Create() {
     setErrors(prev => ({ ...prev, audio: undefined }));
   };
 
-  const uploadAudio = async (poemId: number) => {
-    if (!audioFile) return;
+  const validateAudio = (): boolean => {
+    if (!audioFile) return true;
 
     const fileSizeMB = audioFile.size / (1024 * 1024);
     if (fileSizeMB > 10) {
-      setErrors(prev => ({ ...prev, audio: '音频文件大小不能超过10MB' }));
-      return;
+      setErrors(prev => ({ ...prev, audio: `音频文件大小不能超过10MB，当前${fileSizeMB.toFixed(2)}MB` }));
+      return false;
     }
 
-    if (audioFile.type !== 'audio/mp3' && audioFile.type !== 'audio/mpeg' && !audioFile.name.endsWith('.mp3')) {
-      setErrors(prev => ({ ...prev, audio: '仅限MP3格式音频' }));
-      return;
+    const isValidMP3 = 
+      audioFile.type === 'audio/mp3' || 
+      audioFile.type === 'audio/mpeg' || 
+      audioFile.type === 'audio/x-mpeg-3' ||
+      audioFile.name.toLowerCase().endsWith('.mp3');
+    
+    if (!isValidMP3) {
+      setErrors(prev => ({ ...prev, audio: `仅限MP3格式音频，当前格式：${audioFile.type || '未知'}` }));
+      return false;
     }
+
+    if (audioDuration === 0) {
+      setErrors(prev => ({ ...prev, audio: '音频时长无效，请重新录制' }));
+      return false;
+    }
+
+    if (waveform.length === 0) {
+      setErrors(prev => ({ ...prev, audio: '波形数据无效，请重新录制' }));
+      return false;
+    }
+
+    return true;
+  };
+
+  const uploadAudio = async (poemId: number): Promise<boolean> => {
+    if (!audioFile) return true;
+
+    if (!validateAudio()) return false;
 
     const formData = new FormData();
     formData.append('audio', audioFile);
@@ -103,13 +127,18 @@ export default function Create() {
     const res = await api.poems.uploadAudio(poemId, formData);
     if (res.success) {
       setAudioUploaded(true);
+      return true;
     } else {
-      setErrors(prev => ({ ...prev, audio: res.errors?.[0] || '音频上传失败' }));
+      setErrors(prev => ({ ...prev, audio: res.errors?.[0] || '音频上传失败，请稍后重试' }));
+      return false;
     }
   };
 
   const handleSave = async (share: boolean = false) => {
+    setErrors({});
+
     if (!validate()) return;
+    if (audioFile && !validateAudio()) return;
 
     setSaving(true);
     try {
@@ -121,24 +150,31 @@ export default function Create() {
         categoryId: category?.id,
       });
 
-      if (res.success && res.data) {
-        const poemId = res.data.id;
-        setCreatedPoemId(poemId);
-
-        if (audioFile) {
-          await uploadAudio(poemId);
-        }
-
-        if (share) {
-          await api.poems.share(poemId);
-        }
-
-        navigate(`/works/${poemId}`);
-      } else {
-        setErrors(prev => ({ ...prev, content: res.errors?.[0] || '保存失败' }));
+      if (!res.success || !res.data) {
+        setErrors(prev => ({ ...prev, content: res.errors?.[0] || '保存作品失败，请稍后重试' }));
+        return;
       }
-    } catch (error) {
-      setErrors(prev => ({ ...prev, content: '网络错误，请稍后重试' }));
+
+      const poemId = res.data.id;
+      setCreatedPoemId(poemId);
+
+      if (audioFile) {
+        const audioUploaded = await uploadAudio(poemId);
+        if (!audioUploaded) {
+          return;
+        }
+      }
+
+      if (share) {
+        const shareRes = await api.poems.share(poemId);
+        if (!shareRes.success) {
+          setErrors(prev => ({ ...prev, content: shareRes.errors?.[0] || '发布失败，但作品已保存为草稿' }));
+        }
+      }
+
+      navigate(`/works/${poemId}`);
+    } catch (error: any) {
+      setErrors(prev => ({ ...prev, content: error.message || '网络错误，请稍后重试' }));
     } finally {
       setSaving(false);
     }

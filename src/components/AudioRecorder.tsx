@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Mic, Square, Play, Pause, Trash2, Upload, Volume2 } from 'lucide-react';
+import { Mic, Square, Play, Pause, Trash2, Upload, Volume2, FileAudio, AlertCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface AudioRecorderProps {
@@ -17,6 +17,8 @@ export default function AudioRecorder({ onUpload, maxDuration = 300, maxSizeMB =
   const [waveform, setWaveform] = useState<number[]>([]);
   const [currentTime, setCurrentTime] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [fileInputMode, setFileInputMode] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -27,6 +29,25 @@ export default function AudioRecorder({ onUpload, maxDuration = 300, maxSizeMB =
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const startTimeRef = useRef<number>(0);
   const timerRef = useRef<number | null>(null);
+
+  const validateMP3File = (file: File): string | null => {
+    const fileSizeMB = file.size / (1024 * 1024);
+    if (fileSizeMB > maxSizeMB) {
+      return `文件大小不能超过${maxSizeMB}MB，当前${fileSizeMB.toFixed(2)}MB`;
+    }
+
+    const isValidMP3 = 
+      file.type === 'audio/mp3' || 
+      file.type === 'audio/mpeg' || 
+      file.type === 'audio/x-mpeg-3' ||
+      file.name.toLowerCase().endsWith('.mp3');
+    
+    if (!isValidMP3) {
+      return `仅限MP3格式，当前格式：${file.type || '未知'}`;
+    }
+
+    return null;
+  };
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -156,17 +177,35 @@ export default function AudioRecorder({ onUpload, maxDuration = 300, maxSizeMB =
     setIsPlaying(!isPlaying);
   };
 
-  const handleUpload = () => {
-    if (!recordedBlob || duration === 0) return;
-
-    const fileSizeMB = recordedBlob.size / (1024 * 1024);
-    if (fileSizeMB > maxSizeMB) {
-      setError(`音频文件大小不能超过${maxSizeMB}MB`);
+  const processAudioFile = async (file: File) => {
+    const validationError = validateMP3File(file);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
-    const file = new File([recordedBlob], `recording_${Date.now()}.mp3`, { type: 'audio/mp3' });
-    onUpload(file, duration, waveform);
+    try {
+      setError(null);
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const arrayBuffer = await file.arrayBuffer();
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      const waveformData = generateWaveformData(audioBuffer);
+      const url = URL.createObjectURL(file);
+
+      setRecordedBlob(file);
+      setAudioUrl(url);
+      setWaveform(waveformData);
+      setDuration(Math.floor(audioBuffer.duration));
+    } catch (err) {
+      setError('无法解析音频文件，请确保是有效的MP3文件');
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await processAudioFile(file);
+    e.target.value = '';
   };
 
   const resetRecording = () => {
@@ -177,6 +216,26 @@ export default function AudioRecorder({ onUpload, maxDuration = 300, maxSizeMB =
     setCurrentTime(0);
     setIsPlaying(false);
     setError(null);
+    setFileInputMode(false);
+  };
+
+  const handleUpload = () => {
+    if (!recordedBlob || duration === 0) return;
+
+    const fileSizeMB = recordedBlob.size / (1024 * 1024);
+    if (fileSizeMB > maxSizeMB) {
+      setError(`音频文件大小不能超过${maxSizeMB}MB`);
+      return;
+    }
+
+    const file = new File([recordedBlob], `recording_${Date.now()}.mp3`, { type: 'audio/mp3' });
+    const validationError = validateMP3File(file);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    onUpload(file, duration, waveform);
   };
 
   useEffect(() => {
@@ -203,21 +262,37 @@ export default function AudioRecorder({ onUpload, maxDuration = 300, maxSizeMB =
 
       <div className="flex items-center gap-6 mb-6">
         {!recordedBlob ? (
-          <button
-            onClick={isRecording ? stopRecording : startRecording}
-            className={cn(
-              'w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300',
-              isRecording
-                ? 'bg-red-500 hover:bg-red-600 animate-pulse'
-                : 'bg-gradient-to-br from-[#e94560] to-[#ff6b6b] hover:shadow-lg hover:shadow-[#e94560]/30 hover:scale-105'
-            )}
-          >
-            {isRecording ? (
-              <Square className="w-8 h-8 text-white" />
-            ) : (
-              <Mic className="w-8 h-8 text-white" />
-            )}
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={isRecording ? stopRecording : startRecording}
+              className={cn(
+                'w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300',
+                isRecording
+                  ? 'bg-red-500 hover:bg-red-600 animate-pulse'
+                  : 'bg-gradient-to-br from-[#e94560] to-[#ff6b6b] hover:shadow-lg hover:shadow-[#e94560]/30 hover:scale-105'
+              )}
+            >
+              {isRecording ? (
+                <Square className="w-8 h-8 text-white" />
+              ) : (
+                <Mic className="w-8 h-8 text-white" />
+              )}
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-20 h-20 rounded-full bg-[#f5f0e1]/10 border-2 border-dashed border-[#f5f0e1]/30 flex flex-col items-center justify-center hover:bg-[#f5f0e1]/20 hover:border-[#4a7c59]/50 transition-all"
+            >
+              <FileAudio className="w-7 h-7 text-[#4a7c59] mb-1" />
+              <span className="text-xs text-gray-400">上传MP3</span>
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".mp3,audio/mpeg,audio/mp3"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+          </div>
         ) : (
           <div className="flex items-center gap-4">
             <button
@@ -244,8 +319,14 @@ export default function AudioRecorder({ onUpload, maxDuration = 300, maxSizeMB =
             {formatTime(duration)}
           </div>
           <div className="text-sm text-gray-400">
-            {isRecording ? '正在录音...' : recordedBlob ? '录制完成' : '点击开始录制朗读'}
+            {isRecording ? '正在录音...' : recordedBlob ? '音频已准备就绪' : '点击录制或上传MP3文件'}
           </div>
+          {recordedBlob && (
+            <div className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+              <AlertCircle className="w-3 h-3" />
+              大小: {(recordedBlob.size / 1024 / 1024).toFixed(2)}MB
+            </div>
+          )}
         </div>
 
         {recordedBlob && (
@@ -254,7 +335,7 @@ export default function AudioRecorder({ onUpload, maxDuration = 300, maxSizeMB =
             className="px-6 py-3 bg-gradient-to-r from-[#4a7c59] to-[#2d5a3d] rounded-lg text-white font-medium flex items-center gap-2 hover:shadow-lg hover:shadow-[#4a7c59]/30 transition-all"
           >
             <Upload className="w-5 h-5" />
-            上传音频
+            确认上传
           </button>
         )}
       </div>

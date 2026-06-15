@@ -9,6 +9,7 @@ import WorkDetail from "@/pages/WorkDetail";
 import Community from "@/pages/Community";
 import Report from "@/pages/Report";
 import Admin from "@/pages/Admin";
+import ReminderSettings from "@/components/ReminderSettings";
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
           <Route path="/report" element={<Report />} />
           <Route path="/admin" element={<Admin />} />
         </Routes>
+        <ReminderSettings />
       </Layout>
     </Router>
   );

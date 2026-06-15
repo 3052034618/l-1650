@@ -1,20 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, TrendingUp, Clock, Filter, Search, Award, Flame } from 'lucide-react';
+import { Users, TrendingUp, Clock, Filter, Search, Award, Flame, AlertCircle, X } from 'lucide-react';
 import { api } from '../utils/api';
 import { Poem, Category } from '../../shared/types.js';
 import PoemCard from '../components/PoemCard';
 import Empty from '../components/Empty';
 import { cn } from '../lib/utils';
+import { useAuthStore } from '../store/useAuthStore';
 
 export default function Community() {
   const navigate = useNavigate();
+  const { user } = useAuthStore();
   const [poems, setPoems] = useState<(Poem & { liked?: boolean; favorited?: boolean })[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedGenre, setSelectedGenre] = useState<string>('');
   const [sortBy, setSortBy] = useState<'hot' | 'latest'>('hot');
   const [searchQuery, setSearchQuery] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const showActionError = (msg: string) => {
+    setActionError(msg);
+    setTimeout(() => setActionError(null), 3000);
+  };
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -45,6 +53,19 @@ export default function Community() {
 
   const handleLike = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!user) {
+      showActionError('请先登录后再点赞');
+      return;
+    }
+    const poem = poems.find(p => p.id === id);
+    if (!poem) {
+      showActionError('作品不存在或已被删除');
+      return;
+    }
+    if (!poem.isShared || !poem.isApproved) {
+      showActionError('该作品尚未公开，无法点赞');
+      return;
+    }
     const res = await api.community.like(id);
     if (res.success && res.data) {
       setPoems(prev => prev.map(p => 
@@ -52,11 +73,26 @@ export default function Community() {
           ? { ...p, liked: res.data!.liked, likesCount: res.data!.likesCount }
           : p
       ));
+    } else {
+      showActionError(res.errors?.[0] || '点赞失败，请稍后再试');
     }
   };
 
   const handleFavorite = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!user) {
+      showActionError('请先登录后再收藏');
+      return;
+    }
+    const poem = poems.find(p => p.id === id);
+    if (!poem) {
+      showActionError('作品不存在或已被删除');
+      return;
+    }
+    if (!poem.isShared || !poem.isApproved) {
+      showActionError('该作品尚未公开，无法收藏');
+      return;
+    }
     const res = await api.community.favorite(id);
     if (res.success && res.data) {
       setPoems(prev => prev.map(p => 
@@ -64,6 +100,8 @@ export default function Community() {
           ? { ...p, favorited: res.data!.favorited, favoritesCount: res.data!.favoritesCount }
           : p
       ));
+    } else {
+      showActionError(res.errors?.[0] || '收藏失败，请稍后再试');
     }
   };
 
@@ -77,7 +115,19 @@ export default function Community() {
   const hotPoems = [...poems].sort((a, b) => b.likesCount - a.likesCount).slice(0, 3);
 
   return (
-    <div className="min-h-screen p-8">
+    <div className="min-h-screen p-8 relative">
+      {actionError && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-red-500 text-white px-6 py-3 rounded-xl shadow-lg flex items-center gap-3 animate-[slideDown_0.3s_ease-out]">
+          <AlertCircle className="w-5 h-5" />
+          <span className="font-medium">{actionError}</span>
+          <button
+            onClick={() => setActionError(null)}
+            className="ml-2 p-1 hover:bg-white/20 rounded-full transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
       <div className="max-w-7xl mx-auto space-y-8">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
