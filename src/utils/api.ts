@@ -48,8 +48,13 @@ export const api = {
   },
   community: {
     getHot: (limit = 10) => request<Poem[]>(`/community/hot?limit=${limit}`),
-    getList: (genre?: string, sortBy: 'hot' | 'latest' = 'hot') =>
-      request<Poem[]>(`/community${genre ? `?genre=${encodeURIComponent(genre)}&sortBy=${sortBy}` : `?sortBy=${sortBy}`}`),
+    getList: (genre?: string, sortBy: 'hot' | 'latest' = 'hot', hasAudio?: boolean) => {
+      const params = new URLSearchParams();
+      params.append('sortBy', sortBy);
+      if (genre) params.append('genre', genre);
+      if (hasAudio !== undefined) params.append('hasAudio', String(hasAudio));
+      return request<Poem[]>(`/community?${params.toString()}`);
+    },
     getDetail: (id: number) => request<Poem & { liked: boolean; favorited: boolean }>(`/community/${id}`),
     like: (id: number) =>
       request<{ liked: boolean; likesCount: number }>(`/community/${id}/like`, { method: 'POST' }),

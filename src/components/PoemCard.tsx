@@ -54,10 +54,10 @@ export default function PoemCard({ poem, onLike, onFavorite, onClick, liked, fav
         </div>
 
         {poem.audioUrl && (
-          <div className="flex items-center gap-2 mb-4 text-[#4a7c59]">
+          <div className="flex items-center gap-2 mb-4 px-3 py-1.5 bg-[#4a7c59]/10 border border-[#4a7c59]/20 rounded-full text-[#4a7c59]">
             <Mic className="w-4 h-4" />
-            <span className="text-sm">
-              已录制朗读 {Math.floor(poem.audioDuration! / 60)}分{poem.audioDuration! % 60}秒
+            <span className="text-xs font-medium">
+              有朗读 {Math.floor((poem.audioDuration || 0) / 60)}分{String((poem.audioDuration || 0) % 60).padStart(2, '0')}
             </span>
           </div>
         )}

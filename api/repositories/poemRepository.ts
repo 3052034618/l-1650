@@ -99,7 +99,7 @@ export function getUserPoems(userId: number, options: { genre?: string; page?: n
   return poems.map(p => mapToPoem(p));
 }
 
-export function getCommunityPoems(options: { genre?: string; sortBy?: 'hot' | 'latest'; page?: number; limit?: number } = {}): Poem[] {
+export function getCommunityPoems(options: { genre?: string; sortBy?: 'hot' | 'latest'; page?: number; limit?: number; hasAudio?: boolean } = {}): Poem[] {
   let sql = 'SELECT * FROM poems WHERE is_shared = 1 AND is_approved = 1';
   const params: any[] = [];
 
@@ -108,10 +108,16 @@ export function getCommunityPoems(options: { genre?: string; sortBy?: 'hot' | 'l
     params.push(options.genre);
   }
 
+  if (options.hasAudio === true) {
+    sql += ' AND audio_url IS NOT NULL AND audio_url != \'\'';
+  } else if (options.hasAudio === false) {
+    sql += ' AND (audio_url IS NULL OR audio_url = \'\')';
+  }
+
   if (options.sortBy === 'hot') {
-    sql += ' ORDER BY (likes_count * 3 + comments_count * 2 + favorites_count * 4 + views_count) DESC';
+    sql += ' ORDER BY (CASE WHEN audio_url IS NOT NULL AND audio_url != \'\' THEN 1 ELSE 0 END) DESC, (likes_count * 3 + comments_count * 2 + favorites_count * 4 + views_count) DESC';
   } else {
-    sql += ' ORDER BY created_at DESC';
+    sql += ' ORDER BY (CASE WHEN audio_url IS NOT NULL AND audio_url != \'\' THEN 1 ELSE 0 END) DESC, created_at DESC';
   }
 
   if (options.page && options.limit) {

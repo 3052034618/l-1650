@@ -216,6 +216,7 @@ export default function Create() {
     }
 
     setSaving(true);
+    let createdPoemIdToRollback: number | null = null;
     try {
       const category = categories.find(c => c.name === genre);
       const res = await api.poems.create({
@@ -231,11 +232,14 @@ export default function Create() {
       }
 
       const poemId = res.data.id;
+      createdPoemIdToRollback = poemId;
       setCreatedPoemId(poemId);
 
       if (audioFile) {
         const audioUploaded = await uploadAudio(poemId);
         if (!audioUploaded) {
+          await api.poems.delete(poemId);
+          createdPoemIdToRollback = null;
           return;
         }
       }
@@ -249,6 +253,9 @@ export default function Create() {
 
       navigate(`/works/${poemId}`);
     } catch (error: any) {
+      if (createdPoemIdToRollback) {
+        try { await api.poems.delete(createdPoemIdToRollback); } catch (e) {}
+      }
       setErrors(prev => ({ ...prev, content: error.message || '网络错误，请稍后重试' }));
     } finally {
       setSaving(false);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { BookOpen, Search, Filter, Plus, Trash2, Edit2, Share2, Eye } from 'lucide-react';
+import { BookOpen, Search, Filter, Plus, Trash2, Edit2, Share2, Eye, Mic } from 'lucide-react';
 import { api } from '../utils/api';
 import { Poem, Category } from '../../shared/types.js';
 import Empty from '../components/Empty';
@@ -248,9 +248,11 @@ export default function Works() {
                       <span>{poem.favoritesCount}</span>
                     </div>
                     {poem.audioUrl && (
-                      <div className="flex items-center gap-1.5 text-[#4a7c59] ml-auto">
-                        <span className="w-4 h-4 flex items-center justify-center">🎵</span>
-                        <span>有朗读</span>
+                      <div className="flex items-center gap-1.5 text-[#4a7c59] px-2.5 py-1 bg-[#4a7c59]/10 border border-[#4a7c59]/20 rounded-full">
+                        <Mic className="w-3.5 h-3.5" />
+                        <span className="text-xs font-medium">
+                          {Math.floor((poem.audioDuration || 0) / 60)}分{String((poem.audioDuration || 0) % 60).padStart(2, '0')}
+                        </span>
                       </div>
                     )}
                   </div>

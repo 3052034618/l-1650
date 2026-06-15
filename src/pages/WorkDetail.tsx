@@ -18,9 +18,14 @@ export default function WorkDetail() {
   const [loading, setLoading] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [audioLoading, setAudioLoading] = useState(false);
+  const [audioError, setAudioError] = useState(false);
+  const [seeking, setSeeking] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const progressRef = useRef<HTMLDivElement>(null);
   const isFromWorks = location.pathname.startsWith('/works');
 
   useEffect(() => {
@@ -154,7 +159,7 @@ export default function WorkDetail() {
   };
 
   const togglePlay = () => {
-    if (!audioRef.current) return;
+    if (!audioRef.current || audioError) return;
     if (isPlaying) {
       audioRef.current.pause();
     } else {
@@ -167,6 +172,30 @@ export default function WorkDetail() {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!audioRef.current || !progressRef.current || audioError) return;
+    const rect = progressRef.current.getBoundingClientRect();
+    const percent = (e.clientX - rect.left) / rect.width;
+    const newTime = Math.max(0, Math.min(1, percent)) * (duration || poem?.audioDuration || 0);
+    audioRef.current.currentTime = newTime;
+    setCurrentTime(newTime);
+  };
+
+  const handleSeekStart = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (audioError) return;
+    setSeeking(true);
+    handleSeek(e);
+  };
+
+  const handleSeekMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!seeking) return;
+    handleSeek(e);
+  };
+
+  const handleSeekEnd = () => {
+    setSeeking(false);
   };
 
   const isOwner = user?.id === poem?.userId;
@@ -311,57 +340,123 @@ export default function WorkDetail() {
 
           {poem.audioUrl && (
             <div className="mt-8 p-6 bg-[#0f0f1a] rounded-xl">
-              <div className="flex items-center gap-4 mb-4">
+              <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2 text-[#4a7c59]">
                   <Mic className="w-5 h-5" />
                   <span className="font-medium">朗读音频</span>
                 </div>
-                <span className="text-gray-500 text-sm">
-                  {Math.floor(poem.audioDuration! / 60)}分{poem.audioDuration! % 60}秒
-                </span>
+                {audioError ? (
+                  <span className="text-red-400 text-sm flex items-center gap-1">
+                    <AlertTriangle className="w-4 h-4" />
+                    音频加载失败
+                  </span>
+                ) : (
+                  <span className="text-gray-500 text-sm">
+                    {formatTime(duration || poem.audioDuration || 0)}
+                  </span>
+                )}
               </div>
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={togglePlay}
-                  className="w-14 h-14 rounded-full bg-gradient-to-br from-[#4a7c59] to-[#2d5a3d] flex items-center justify-center hover:scale-105 transition-transform"
-                >
-                  {isPlaying ? (
-                    <Pause className="w-6 h-6 text-white" />
-                  ) : (
-                    <Play className="w-6 h-6 text-white ml-1" />
-                  )}
-                </button>
-                <div className="flex-1">
-                  <div className="flex items-center gap-1 h-12 bg-[#1a1a2e] rounded-lg p-2">
-                    {poem.waveformData?.map((value, i) => (
-                      <div
-                        key={i}
-                        className={cn(
-                          'flex-1 rounded-full transition-all',
-                          currentTime > (i / (poem.waveformData?.length || 1)) * poem.audioDuration!
-                            ? 'bg-[#4a7c59]'
-                            : 'bg-[#4a7c59]/30'
-                        )}
-                        style={{ height: `${Math.max(10, value * 100)}%` }}
-                      />
-                    ))}
-                  </div>
-                  <div className="flex justify-between mt-2 text-xs text-gray-500">
-                    <span>{formatTime(currentTime)}</span>
-                    <span>{formatTime(poem.audioDuration || 0)}</span>
+              
+              {audioError ? (
+                <div className="flex items-center justify-center gap-3 py-8 text-gray-400">
+                  <AlertTriangle className="w-8 h-8 text-red-400/60" />
+                  <div>
+                    <p className="text-white font-medium">音频文件加载失败</p>
+                    <p className="text-sm text-gray-500">文件可能已损坏或被删除，请重新录制或上传</p>
                   </div>
                 </div>
-              </div>
-              <audio
-                ref={audioRef}
-                src={poem.audioUrl}
-                onTimeUpdate={(e) => setCurrentTime((e.target as HTMLAudioElement).currentTime)}
-                onEnded={() => {
-                  setIsPlaying(false);
-                  setCurrentTime(0);
-                }}
-                className="hidden"
-              />
+              ) : (
+                <>
+                  <div className="flex items-center gap-4">
+                    <button
+                      onClick={togglePlay}
+                      disabled={audioLoading}
+                      className="w-14 h-14 rounded-full bg-gradient-to-br from-[#4a7c59] to-[#2d5a3d] flex items-center justify-center hover:scale-105 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {audioLoading ? (
+                        <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : isPlaying ? (
+                        <Pause className="w-6 h-6 text-white" />
+                      ) : (
+                        <Play className="w-6 h-6 text-white ml-1" />
+                      )}
+                    </button>
+                    
+                    <div className="flex-1">
+                      <div
+                        ref={progressRef}
+                        className="relative h-12 bg-[#1a1a2e] rounded-lg p-2 cursor-pointer select-none overflow-hidden"
+                        onMouseDown={handleSeekStart}
+                        onMouseMove={handleSeekMove}
+                        onMouseUp={handleSeekEnd}
+                        onMouseLeave={handleSeekEnd}
+                      >
+                        <div className="relative flex items-center gap-1 h-full">
+                          {poem.waveformData?.map((value, i) => {
+                            const totalDuration = duration || poem.audioDuration || 0;
+                            const waveTime = (i / (poem.waveformData?.length || 1)) * totalDuration;
+                            const isPlayed = currentTime > waveTime;
+                            return (
+                              <div
+                                key={i}
+                                className={cn(
+                                  'flex-1 rounded-full transition-colors',
+                                  isPlayed ? 'bg-[#4a7c59]' : 'bg-[#4a7c59]/30'
+                                )}
+                                style={{ height: `${Math.max(12, value * 100)}%` }}
+                              />
+                            );
+                          })}
+                        </div>
+                        <div
+                          className="absolute top-0 left-0 h-full w-1 bg-white/50 rounded-full pointer-events-none"
+                          style={{
+                            left: `${((currentTime / (duration || poem.audioDuration || 1)) * 100).toFixed(2)}%`,
+                          }}
+                        />
+                      </div>
+                      <div className="flex justify-between mt-2 text-xs text-gray-500">
+                        <span>{formatTime(currentTime)}</span>
+                        <span className="text-gray-600">点击或拖动波形调整进度</span>
+                        <span>{formatTime(duration || poem.audioDuration || 0)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <audio
+                    ref={audioRef}
+                    src={poem.audioUrl}
+                    onLoadStart={() => {
+                      setAudioLoading(true);
+                      setAudioError(false);
+                    }}
+                    onCanPlay={() => {
+                      setAudioLoading(false);
+                      setDuration(audioRef.current?.duration || poem.audioDuration || 0);
+                    }}
+                    onLoadedMetadata={(e) => {
+                      setDuration((e.target as HTMLAudioElement).duration);
+                    }}
+                    onTimeUpdate={(e) => {
+                      if (!seeking) {
+                        setCurrentTime((e.target as HTMLAudioElement).currentTime);
+                      }
+                    }}
+                    onPlay={() => setIsPlaying(true)}
+                    onPause={() => setIsPlaying(false)}
+                    onEnded={() => {
+                      setIsPlaying(false);
+                      setCurrentTime(0);
+                    }}
+                    onError={() => {
+                      setAudioError(true);
+                      setAudioLoading(false);
+                      setIsPlaying(false);
+                    }}
+                    className="hidden"
+                    preload="metadata"
+                  />
+                </>
+              )}
             </div>
           )}
 

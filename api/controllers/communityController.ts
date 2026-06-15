@@ -6,12 +6,17 @@ import { toggleLike, toggleFavorite, addComment, getPoemComments, hasUserLiked, 
 
 export function getCommunityPoemsHandler(req: AuthRequest, res: Response<ApiResponse<Poem[]>>) {
   try {
-    const { genre, sortBy, page, limit } = req.query;
+    const { genre, sortBy, page, limit, hasAudio } = req.query;
+    let hasAudioBool: boolean | undefined;
+    if (hasAudio === 'true') hasAudioBool = true;
+    else if (hasAudio === 'false') hasAudioBool = false;
+
     const poems = getCommunityPoems({
       genre: genre as string,
       sortBy: (sortBy as 'hot' | 'latest') || 'hot',
       page: page ? parseInt(page as string) : undefined,
       limit: limit ? parseInt(limit as string) : undefined,
+      hasAudio: hasAudioBool,
     });
 
     res.json({

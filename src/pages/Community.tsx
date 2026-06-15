@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, TrendingUp, Clock, Filter, Search, Award, Flame, AlertCircle, X } from 'lucide-react';
+import { Users, TrendingUp, Clock, Filter, Search, Award, Flame, AlertCircle, X, Mic } from 'lucide-react';
 import { api } from '../utils/api';
 import { Poem, Category } from '../../shared/types.js';
 import PoemCard from '../components/PoemCard';
@@ -16,6 +16,7 @@ export default function Community() {
   const [loading, setLoading] = useState(true);
   const [selectedGenre, setSelectedGenre] = useState<string>('');
   const [sortBy, setSortBy] = useState<'hot' | 'latest'>('hot');
+  const [hasAudioFilter, setHasAudioFilter] = useState<boolean | undefined>(undefined);
   const [searchQuery, setSearchQuery] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -49,7 +50,7 @@ export default function Community() {
     const fetchPoems = async () => {
       setLoading(true);
       try {
-        const res = await api.community.getList(selectedGenre || undefined, sortBy);
+        const res = await api.community.getList(selectedGenre || undefined, sortBy, hasAudioFilter);
         if (res.success && res.data) {
           setPoems(res.data);
         }
@@ -60,7 +61,7 @@ export default function Community() {
       }
     };
     fetchPoems();
-  }, [selectedGenre, sortBy]);
+  }, [selectedGenre, sortBy, hasAudioFilter]);
 
   const handleLike = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -176,17 +177,23 @@ export default function Community() {
               <h3 className="text-xl font-bold text-white font-serif mb-2 line-clamp-1">{poem.title}</h3>
               <p className="text-gray-400 text-sm mb-2">@{poem.author?.username}</p>
               <p className="text-gray-300 font-serif line-clamp-2 text-sm">{poem.content}</p>
-              <div className="flex items-center gap-4 mt-4 text-sm">
+              <div className="flex items-center gap-4 mt-4 text-sm flex-wrap">
                 <span className="text-[#e94560]">♥ {poem.likesCount}</span>
                 <span className="text-gray-500">💬 {poem.commentsCount}</span>
                 <span className="text-gray-500">⭐ {poem.favoritesCount}</span>
+                {poem.audioUrl && (
+                  <span className="flex items-center gap-1 text-[#4a7c59] px-2 py-0.5 bg-[#4a7c59]/10 rounded-full text-xs">
+                    <Mic className="w-3 h-3" />
+                    {Math.floor((poem.audioDuration || 0) / 60)}分{String((poem.audioDuration || 0) % 60).padStart(2, '0')}
+                  </span>
+                )}
               </div>
             </div>
           ))}
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex-1 relative">
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex-1 min-w-[200px] relative">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
             <input
               type="text"
@@ -210,6 +217,42 @@ export default function Community() {
                 </option>
               ))}
             </select>
+          </div>
+          <div className="flex items-center bg-[#f5f0e1]/10 rounded-lg p-1">
+            <button
+              onClick={() => setHasAudioFilter(undefined)}
+              className={cn(
+                'flex items-center gap-2 px-4 py-2 rounded-md transition-all text-sm',
+                hasAudioFilter === undefined
+                  ? 'bg-[#4a7c59] text-white'
+                  : 'text-gray-400 hover:text-white'
+              )}
+            >
+              全部
+            </button>
+            <button
+              onClick={() => setHasAudioFilter(true)}
+              className={cn(
+                'flex items-center gap-2 px-4 py-2 rounded-md transition-all text-sm',
+                hasAudioFilter === true
+                  ? 'bg-[#4a7c59] text-white'
+                  : 'text-gray-400 hover:text-white'
+              )}
+            >
+              <Mic className="w-4 h-4" />
+              有朗读
+            </button>
+            <button
+              onClick={() => setHasAudioFilter(false)}
+              className={cn(
+                'flex items-center gap-2 px-4 py-2 rounded-md transition-all text-sm',
+                hasAudioFilter === false
+                  ? 'bg-[#4a7c59] text-white'
+                  : 'text-gray-400 hover:text-white'
+              )}
+            >
+              无朗读
+            </button>
           </div>
           <div className="flex items-center bg-[#f5f0e1]/10 rounded-lg p-1">
             <button
