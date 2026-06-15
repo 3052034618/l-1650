@@ -222,6 +222,6 @@ export function sharePoem(id: number): Poem | null {
   return getPoemById(id);
 }
 
-export function getHotPoems(limit = 10): Poem[] {
-  return getCommunityPoems({ sortBy: 'hot', limit });
+export function getHotPoems(limit = 10, hasAudio?: boolean): Poem[] {
+  return getCommunityPoems({ sortBy: 'hot', limit, hasAudio });
 }

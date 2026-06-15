@@ -19,6 +19,8 @@ export default function Community() {
   const [hasAudioFilter, setHasAudioFilter] = useState<boolean | undefined>(undefined);
   const [searchQuery, setSearchQuery] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
+  const [hotPoems, setHotPoems] = useState<Poem[]>([]);
+  const [hotPoemsLoading, setHotPoemsLoading] = useState(true);
 
   const showActionError = (msg: string) => {
     setActionError(msg);
@@ -62,6 +64,23 @@ export default function Community() {
     };
     fetchPoems();
   }, [selectedGenre, sortBy, hasAudioFilter]);
+
+  useEffect(() => {
+    const fetchHotPoems = async () => {
+      setHotPoemsLoading(true);
+      try {
+        const res = await api.community.getHot(3, hasAudioFilter);
+        if (res.success && res.data) {
+          setHotPoems(res.data);
+        }
+      } catch (error) {
+        console.error('Failed to fetch hot poems:', error);
+      } finally {
+        setHotPoemsLoading(false);
+      }
+    };
+    fetchHotPoems();
+  }, [hasAudioFilter]);
 
   const handleLike = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -124,8 +143,6 @@ export default function Community() {
     p.author?.username?.includes(searchQuery)
   );
 
-  const hotPoems = [...poems].sort((a, b) => b.likesCount - a.likesCount).slice(0, 3);
-
   return (
     <div className="min-h-screen p-8 relative">
       {actionError && (
@@ -153,44 +170,56 @@ export default function Community() {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
-          {hotPoems.map((poem, index) => (
-            <div
-              key={poem.id}
-              onClick={() => navigate(`/community/${poem.id}`)}
-              className={cn(
-                'relative bg-gradient-to-br p-6 rounded-2xl border cursor-pointer transition-all hover:scale-105',
-                index === 0 
-                  ? 'from-[#f5d742]/20 to-[#e5c400]/10 border-[#f5d742]/30'
-                  : index === 1
-                    ? 'from-[#bdc3c7]/20 to-[#95a5a6]/10 border-[#bdc3c7]/30'
-                    : 'from-[#e67e22]/20 to-[#d35400]/10 border-[#e67e22]/30'
-              )}
-            >
-              <div className="absolute top-4 right-4">
-                <Award className={cn(
-                  'w-8 h-8',
-                  index === 0 ? 'text-[#f5d742]' : index === 1 ? 'text-[#bdc3c7]' : 'text-[#e67e22]'
-                )} />
-              </div>
-              <div className="text-sm text-gray-400 mb-2">热度榜第 {index + 1} 名</div>
-              <h3 className="text-xl font-bold text-white font-serif mb-2 line-clamp-1">{poem.title}</h3>
-              <p className="text-gray-400 text-sm mb-2">@{poem.author?.username}</p>
-              <p className="text-gray-300 font-serif line-clamp-2 text-sm">{poem.content}</p>
-              <div className="flex items-center gap-4 mt-4 text-sm flex-wrap">
-                <span className="text-[#e94560]">♥ {poem.likesCount}</span>
-                <span className="text-gray-500">💬 {poem.commentsCount}</span>
-                <span className="text-gray-500">⭐ {poem.favoritesCount}</span>
-                {poem.audioUrl && (
-                  <span className="flex items-center gap-1 text-[#4a7c59] px-2 py-0.5 bg-[#4a7c59]/10 rounded-full text-xs">
-                    <Mic className="w-3 h-3" />
-                    {Math.floor((poem.audioDuration || 0) / 60)}分{String((poem.audioDuration || 0) % 60).padStart(2, '0')}
-                  </span>
+        {hotPoemsLoading ? (
+          <div className="grid grid-cols-3 gap-4">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="h-48 bg-[#f5f0e1]/5 rounded-2xl animate-pulse" />
+            ))}
+          </div>
+        ) : hotPoems.length > 0 ? (
+          <div className="grid grid-cols-3 gap-4">
+            {hotPoems.map((poem, index) => (
+              <div
+                key={poem.id}
+                onClick={() => navigate(`/community/${poem.id}`)}
+                className={cn(
+                  'relative bg-gradient-to-br p-6 rounded-2xl border cursor-pointer transition-all hover:scale-105',
+                  index === 0 
+                    ? 'from-[#f5d742]/20 to-[#e5c400]/10 border-[#f5d742]/30'
+                    : index === 1
+                      ? 'from-[#bdc3c7]/20 to-[#95a5a6]/10 border-[#bdc3c7]/30'
+                      : 'from-[#e67e22]/20 to-[#d35400]/10 border-[#e67e22]/30'
                 )}
+              >
+                <div className="absolute top-4 right-4">
+                  <Award className={cn(
+                    'w-8 h-8',
+                    index === 0 ? 'text-[#f5d742]' : index === 1 ? 'text-[#bdc3c7]' : 'text-[#e67e22]'
+                  )} />
+                </div>
+                <div className="text-sm text-gray-400 mb-2">热度榜第 {index + 1} 名</div>
+                <h3 className="text-xl font-bold text-white font-serif mb-2 line-clamp-1">{poem.title}</h3>
+                <p className="text-gray-400 text-sm mb-2">@{poem.author?.username}</p>
+                <p className="text-gray-300 font-serif line-clamp-2 text-sm">{poem.content}</p>
+                <div className="flex items-center gap-4 mt-4 text-sm flex-wrap">
+                  <span className="text-[#e94560]">♥ {poem.likesCount}</span>
+                  <span className="text-gray-500">💬 {poem.commentsCount}</span>
+                  <span className="text-gray-500">⭐ {poem.favoritesCount}</span>
+                  {poem.audioUrl && (
+                    <span className="flex items-center gap-1 text-[#4a7c59] px-2 py-0.5 bg-[#4a7c59]/10 rounded-full text-xs">
+                      <Mic className="w-3 h-3" />
+                      {Math.floor((poem.audioDuration || 0) / 60)}分{String((poem.audioDuration || 0) % 60).padStart(2, '0')}
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-8 bg-[#f5f0e1]/5 rounded-2xl">
+            <p className="text-gray-400">暂无符合条件的热门作品</p>
+          </div>
+        )}
 
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex-1 min-w-[200px] relative">

@@ -192,8 +192,12 @@ export function addCommentHandler(req: AuthRequest, res: Response<ApiResponse<Co
 
 export function getHotPoemsHandler(req: AuthRequest, res: Response<ApiResponse<Poem[]>>) {
   try {
-    const { limit } = req.query;
-    const poems = getHotPoems(limit ? parseInt(limit as string) : 10);
+    const { limit, hasAudio } = req.query;
+    let hasAudioBool: boolean | undefined;
+    if (hasAudio === 'true') hasAudioBool = true;
+    else if (hasAudio === 'false') hasAudioBool = false;
+
+    const poems = getHotPoems(limit ? parseInt(limit as string) : 10, hasAudioBool);
 
     res.json({
       success: true,

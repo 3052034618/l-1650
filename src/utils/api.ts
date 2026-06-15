@@ -47,7 +47,12 @@ export const api = {
       }),
   },
   community: {
-    getHot: (limit = 10) => request<Poem[]>(`/community/hot?limit=${limit}`),
+    getHot: (limit = 10, hasAudio?: boolean) => {
+      const params = new URLSearchParams();
+      params.append('limit', String(limit));
+      if (hasAudio !== undefined) params.append('hasAudio', String(hasAudio));
+      return request<Poem[]>(`/community/hot?${params.toString()}`);
+    },
     getList: (genre?: string, sortBy: 'hot' | 'latest' = 'hot', hasAudio?: boolean) => {
       const params = new URLSearchParams();
       params.append('sortBy', sortBy);
